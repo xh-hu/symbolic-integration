@@ -23,7 +23,7 @@ function factorize(e)
     elseif operation(e) == *
         return collect(Iterators.flatten([factorize(arguments(e)[i]) for i=1:length(arguments(e))]))
     elseif operation(e) == /
-        return collect(Iterators.flatten([factorize(arguments(e)[1]), factorize((arguments(e)[2])^-1)]))
+        return collect(Iterators.flatten([factorize(arguments(e)[1]), factorize(arguments(e)[2]) .^ -1]))
     else
         return [e]
     end
@@ -158,7 +158,7 @@ let
                 elseif istree(factor) && in_integration_table(operation(factor))
                     y = arguments(factor)[1]
                     # @show y
-                    k2 = divides_to(e, factor * expand_derivatives(Differential(v)(y)))
+                    k2 = simplify_fractions(e/(factor * expand_derivatives(Differential(v)(y))))
                     # @show k2
                     if free_of(k2, v)
                         return k2*integrate_from_table(integral(factor, y))
@@ -171,7 +171,7 @@ let
 
 end
 
-@syms x::Real
-@show integrate(integral(cos(3*x)/(1-sin(3*x))^2, x))
+# @syms x::Real
+# @show integrate(integral(cos(3*x)/(1-sin(3*x))^2, x))
 
 end
