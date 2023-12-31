@@ -2,21 +2,7 @@
 
 # Attempt at writing an integration function
 let
-    global integrate_from_table
     global simple_integrate
-
-    function in_integration_table(op)
-        return op == log || op == exp || op == sin || op == cos || op == tan || op == sinh || op == cosh || op == tanh || op == ^
-    end
-
-    function integrate_from_table(x)
-        # @show x
-        @assert (operation(x) == integral) "can only integrate an integral term"
-        rule_tree = SymbolicUtils.Fixpoint(SymbolicUtils.Chain(INTEGRATION_TABLE))
-        # Check if integration worked
-        @assert (operation(rule_tree(x)) != integral) "integration expression is not currently supported"
-        rule_tree(x)
-    end
 
     """
     Integrates an expression x with only one variable
