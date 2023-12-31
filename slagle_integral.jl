@@ -34,11 +34,11 @@ let
     end
 
     mutable struct GoalNode
-        expr::Number
-        dvar::Number
-        result::Union{Number, Nothing}
-        # stores the rule to compute its own reuslt from child results
-        rule::Union{SymbolicUtils.Rule, Nothing}
+        expr::Any
+        dvar::Any
+        result::Union{Any, Nothing}
+        # stores the function to compute its own reuslt from child results
+        compute::Union{Function, Nothing}
         relevant::Int
 
         parent::Union{GoalNode, Nothing}
@@ -65,6 +65,29 @@ let
     function char_lt(x, y)
         return get_depth(x, 0) < get_depth(y, 0)
     end
+    
+    """
+    Debugging function: prints the entire goal tree, by printing info from all nodes in prefix order
+    """
+    function get_root(node)
+        if node.parent !== nothing
+            return get_root(node.parent)
+        end
+        return node
+    end
+
+    function print_subtree(node)
+        print(node)
+        for child in node.children
+            print_tree(child)
+        end
+    end
+
+    # input is any node in the tree
+    function print_tree(node)
+        g = get_root(node)
+        print_subtree(g)
+    end
 
     """
     Helper function: prunes the goal tree. Takes in a GoalNode as input.
@@ -72,32 +95,36 @@ let
     function prune_tree(node)
         node.relevant = 0
         # if the node is the root node (original goal), return true
-        if node.parent == none
+        if node.parent === nothing
             return true
         end
         # prune all its children
         for child in node.children
             # For now, we do not check if node has multiple parents, since it is not implemented yet
-            if child.relevance != 0
+            if child.relevance !== 0
                 prune_tree(child)
             end
         end
         # prune ancestors if achievable
-        p = node.parent
-        if p.childtype == OR::EdgeType
-            # COMPUTE RESULT FROM CHILDREN
-            p.result = node.result
-            prune_tree(p)
-        elseif p.childtype == AND::EdgeType
-            total_rel = 0
-            children_results = []
-            for child in p.children
-                total_rel += child.relevance
-                push!(children_results, child.result)
-            end
-            if total_rel == 0
-                p.result = p.rule(children_results)
+        if node.result !== nothing
+            p = node.parent
+            if p.childtype === OR::EdgeType
+                # COMPUTE RESULT FROM CHILDREN
+                p.result = p.compute(node.result)
+                @show node.result
+                @show p.result
                 prune_tree(p)
+            elseif p.childtype === AND::EdgeType
+                total_rel = 0
+                children_results = []
+                for child in p.children
+                    total_rel += child.relevance
+                    push!(children_results, child.result)
+                end
+                if total_rel === 0
+                    p.result = p.compute(children_results...)
+                    prune_tree(p)
+                end
             end
         end
     end
@@ -106,26 +133,33 @@ let
     imsln: applies immediate solving to a goal list and mutates temp_goal_list input to be the new temporary goal list
     """
     function imsln(goal_list, temp_goal_list)
-        if length(goal_list) == 0
+        if length(goal_list) === 0
             return false
         else
             g1 = goal_list[1]
-            if g1.relevant == 0
+            if g1.relevant === 0
                 goal_list = goal_list[2:end]
                 imsln(goal_list)
             else
                 # we skip c: reassigning parents for same expressions for now for simplicity
                 # check to achieve g1: use simple integral temporarily
-                try
-                    g1.result = simple_integrate(integral(g1.expr, g1.dvar))
+                rule_tree = SymbolicUtils.Fixpoint(SymbolicUtils.Chain(STANDARD_FORMS))
+                if operation(rule_tree(integral(g1.expr, g1.dvar))) != integral
+                    g1.result = rule_tree(integral(g1.expr, g1.dvar))
                     if prune_tree(g1) == true
                         return true
+                    else
+                        goal_list = goal_list[2:end]
+                        imsln(goal_list, temp_goal_list)
                     end
-                catch e
+                else
                     # Algorithmic transformations
                     if is_exp_with_op(g1.expr, *) && SymbolicUtils.is_literal_number(arguments(g1.expr)[1])
-                        g1.rule = @rule([(~x)] => arguments(e)[1] * (~x))
-                        g2 = GoalNode(arguments(e)[2], g1.dvar, nothing, nothing, 1, g1, LEAF, [])
+                        function f(x)
+                            return  arguments(g1.expr)[1] * x
+                        end
+                        g1.compute = f
+                        g2 = GoalNode(arguments(g1.expr)[2], g1.dvar, nothing, nothing, 1, g1, LEAF, [])
                         g1.childtype = OR
                         push!(g1.children, g2)
                         push!(goal_list, g2)
@@ -156,7 +190,7 @@ let
         temp_goal_list = [];
         heuristic_list = [];
 
-        if imsln(goal_list, temp_goal_list) == true
+        if imsln(goal_list, temp_goal_list)
             return original_goal.result
         end
 
@@ -165,7 +199,7 @@ let
             heuristic_list = sort(temp_goal_list, lt=char_lt)
             temp_goal_list = []
 
-            if heuristic_list.length == 0
+            if length(heuristic_list) === 0
                 throw(error("integration expression is not currently supported"))
             end
 
@@ -176,7 +210,7 @@ let
             g_i.childtype = LEAF
             push!(g_i.children, g)
             push!(goal_list, g)
-            if imsln(goal_list, temp_goal_list) == true
+            if imsln(goal_list, temp_goal_list)
                 return original_goal.result
             else
                 if g_i.result != nothing
